@@ -1,57 +1,48 @@
 #define STM32H7A3xxQ
-
-#include "stm32h7xx.h" // ATENÇÃO: Verifique se este é o cabeçalho exato da sua placa NUCLEO-144 (ex: stm32h7xx.h, stm32f4xx.h)
 #include <stdint.h>
+#include "stm32h7xx.h"
 
-
-// =========================================================================
-// DEFINIÇÃO DOS PINOS, PORTAS E MÁSCARAS (HARDWARE MAPPING)
-// =========================================================================
-
-// Configurações do LED RGB (Porta D)
+// GPIOD (LED RGB)
 #define LED_PORT        GPIOD
 #define LED_RED_PIN     12
 #define LED_GREEN_PIN   14
 #define LED_BLUE_PIN    15
 
-// Configurações do Botão Azul (Porta C)
+// GPIOC (Botão)
 #define BOT_PORT        GPIOC
 #define BOT_PIN         13
 
-// Máscaras úteis para manipular os registradores de forma mais legível
+// Máscaras para cada pino
 #define LED_RED_MASK    (1U << LED_RED_PIN)
 #define LED_GREEN_MASK  (1U << LED_GREEN_PIN)
 #define LED_BLUE_MASK   (1U << LED_BLUE_PIN)
 #define LED_ALL_MASK    (LED_RED_MASK | LED_GREEN_MASK | LED_BLUE_MASK)
 
-// =========================================================================
 // ESTRUTURAS E VARIÁVEIS GLOBAIS
-// =========================================================================
 
-// Definição da Estrutura Otimizada (52 bytes, sem padding)
+// Agrupamento das informações necessárias para alterar os estados do LED
 typedef struct {
   char identificador[50];
   uint8_t estado_botao;
   uint8_t estado_leds;
   uint32_t contador;
-  enum COR {PRETO, VERMELHO, VERDE, AZUL, AMARELO, CIANO, MAGENTA, BRANCO} cor_led;
+  enum COR {APAGADO, VERMELHO, VERDE, AZUL, AMARELO, CIANO, MAGENTA, BRANCO} cor_led;
 } Perifericos_t;
 
-// Instanciação da Variável Global
+// Dados iniciais que serão alterados a cada clique do botão
 volatile Perifericos_t LEDInterativo = {
-    .identificador = "Usuario_Embarcados",
+    .identificador = "usuario",
     .estado_botao = 0,
-    .estado_leds = 0b00000001, // Começa configurado para o estado "Apagado"
+    .estado_leds = 0b00000001, // Estado inicial - LED apagado
     .contador = 0,
-    .cor_led = PRETO
+    .cor_led = APAGADO
 };
 
 // Protótipos das Funções
 void Hardware_Init(void);
 
-// =========================================================================
-// FUNÇÃO PRINCIPAL
-// =========================================================================
+///////////////////////////
+
 int main(void) {
 
     // Inicializa o hardware (Clocks, GPIOs, Interrupções)
@@ -67,108 +58,95 @@ int main(void) {
 
             // 2. ACENDER OS LEDs E ATUALIZAR O ESTADO DA COR
             switch(LEDInterativo.estado_leds) {
-                case 0b00000001: // Apagado
-                    LEDInterativo.cor_led = PRETO;
+                case 0x01: // Apagado
+                    LEDInterativo.cor_led = APAGADO;
                     break;
-                case 0b00000010: // Vermelho
+                case 0x02: // Vermelho
                     LED_PORT->BSRR = LED_RED_MASK;
                     LEDInterativo.cor_led = VERMELHO;
                     break;
-                case 0b00000100: // Verde
+                case 0x04: // Verde
                     LED_PORT->BSRR = LED_GREEN_MASK;
                     LEDInterativo.cor_led = VERDE;
                     break;
-                case 0b00001000: // Azul
+                case 0x08: // Azul
                     LED_PORT->BSRR = LED_BLUE_MASK;
                     LEDInterativo.cor_led = AZUL;
                     break;
-                case 0b00010000: // Amarelo (Vermelho + Verde)
+                case 0x10: // Amarelo (Vermelho + Verde)
                     LED_PORT->BSRR = (LED_RED_MASK | LED_GREEN_MASK);
                     LEDInterativo.cor_led = AMARELO;
                     break;
-                case 0b00100000: // Ciano (Verde + Azul)
+                case 0x20: // Ciano (Verde + Azul)
                     LED_PORT->BSRR = (LED_GREEN_MASK | LED_BLUE_MASK);
                     LEDInterativo.cor_led = CIANO;
                     break;
-                case 0b01000000: // Magenta (Azul + Vermelho)
+                case 0x40: // Magenta (Azul + Vermelho)
                     LED_PORT->BSRR = (LED_RED_MASK | LED_BLUE_MASK);
                     LEDInterativo.cor_led = MAGENTA;
                     break;
-                case 0b10000000: // Branco (Todos os canais)
+                case 0x80: // Branco (Todos os canais)
                     LED_PORT->BSRR = LED_ALL_MASK;
                     LEDInterativo.cor_led = BRANCO;
                     break;
                 default:
-                    LEDInterativo.cor_led = PRETO;
+                    LEDInterativo.cor_led = APAGADO;
                     break;
             }
 
-            // 3. RESETAR FLAG do botão após processar a ação
+            // Reset da FLAG do botão após processar a ação
             LEDInterativo.estado_botao = 0;
         }
     }
 }
 
-// =========================================================================
-// CONFIGURAÇÃO DOS PERIFÉRICOS (CMSIS)
-// =========================================================================
 void Hardware_Init(void) {
-    // --- 1. CONFIGURAÇÃO DOS CLOCKS ---
-    // Habilitar clock para as portas C (Botão) e D (LEDs)
+    // Habilita o clock para o botão (GPIOC), LED (GPIOD), SYSCFG e EXTI
     RCC->AHB4ENR |= RCC_AHB4ENR_GPIOCEN | RCC_AHB4ENR_GPIODEN;
-    // Habilitar clock para o SYSCFG (Essencial para configurar o EXTI)
     RCC->APB4ENR |= RCC_APB4ENR_SYSCFGEN;
 
-    // --- 2. CONFIGURAÇÃO DO LED RGB (SAÍDAS) ---
-    // Limpar os bits de MODER (configurando como entrada temporariamente)
+    // Configuração dos pinos do LED como saída (PD12,14,15)
     LED_PORT->MODER &= ~((3U << (LED_RED_PIN * 2)) | (3U << (LED_GREEN_PIN * 2)) | (3U << (LED_BLUE_PIN * 2)));
-    // Configurar como saída (01)
     LED_PORT->MODER |=  ((1U << (LED_RED_PIN * 2)) | (1U << (LED_GREEN_PIN * 2)) | (1U << (LED_BLUE_PIN * 2)));
 
-    // --- 3. CONFIGURAÇÃO DO BOTÃO AZUL (ENTRADA) ---
-    // Limpar bits de MODER para garantir modo de entrada (00)
+    // Configuração do botão como entrada (PC13)
     BOT_PORT->MODER &= ~(3U << (BOT_PIN * 2));
-    // Como existe um circuito de pull-down externo no PC13, desabilitamos resistores internos (00)
     BOT_PORT->PUPDR &= ~(3U << (BOT_PIN * 2));
 
-    // --- 4. CONFIGURAÇÃO DA INTERRUPÇÃO EXTERNA (EXTI) ---
-    // Mapear o PC13 para a linha EXTI13 no SYSCFG
+    // Configuração do EXTI13 (botão) - Interrupção
     SYSCFG->EXTICR[3] &= ~(0x000F << 4);     // Limpar bits correspondentes ao EXTI13
-    SYSCFG->EXTICR[3] |=  (0x0002 << 4);     // Setar mapeamento para PORT C (0010 binário = 2)
+    SYSCFG->EXTICR[3] |=  (0x0002 << 4);     // PC13
 
-    // Configurar gatilho para borda de subida (Rising Trigger) no EXTI13
+    // Gatilho para borda de subida no EXTI13
     EXTI->RTSR1 |= (1U << BOT_PIN);
-    EXTI->FTSR1 &= ~(1U << BOT_PIN);         // Desativar borda de descida para evitar disparos na soltura do botão
+    EXTI->FTSR1 &= ~(1U << BOT_PIN);
 
-    // Desmascarar (habilitar) a interrupção 13
+    // Habilita a interrupção
     EXTI->IMR1 |= (1U << BOT_PIN);
 
-    // --- 5. CONFIGURAÇÃO DO NVIC (CONTROLADOR DE INTERRUPÇÕES) ---
-    // A linha EXTI13 é atendida pela interrupção "EXTI15_10_IRQn" (pinos 10 a 15)
-    NVIC_SetPriority(EXTI15_10_IRQn, 6);     // Define a prioridade requisitada (6)
+    // Configuração do NVIC (Controlador de interrupções)
+    // A linha EXTI13 é atendida através do pinos 10 a 15
+    NVIC_SetPriority(EXTI15_10_IRQn, 6);     // Define a prioridade 
     NVIC_EnableIRQ(EXTI15_10_IRQn);          // Habilita a interrupção no controlador
 }
 
-// =========================================================================
-// ROTINA DE SERVIÇO DE INTERRUPÇÃO (ISR)
-// =========================================================================
+// Rotina de serviço de interrupção
 void EXTI15_10_IRQHandler(void) {
-    // Verificar se a interrupção foi realmente gerada pelo pino do nosso botão (linha 13)
+    // Verificar se a interrupção é gerada pelo pino do botão
     if ((EXTI->PR1 & (1U << BOT_PIN)) != 0) {
 
-        // Limpar a flag de interrupção escrevendo 1 nela
-        EXTI->PR1 = (1U << BOT_PIN);
+        // Limpa a flag de interrupção
+        EXTI->PR1 = (1U << BOT_PIN); // Escreve "1" no bit 13
 
-        // 1. Incrementar o contador de acionamentos
+        // Incrementa o contador
         LEDInterativo.contador++;
 
-        // 2. Rotação Cíclica da variável estado_leds
-        // O deslocamento << 1 move todos os bits para a esquerda
-        // O >> 7 extrai o bit mais significativo antigo para jogar de volta na posição 0
+        // Rotação cíclica dos bits (deslocamento à esquerda)
+        // São 8 estados
         uint8_t tmp = (LEDInterativo.estado_leds << 1) | ((LEDInterativo.estado_leds >> 7) & 1);
         LEDInterativo.estado_leds = tmp;
 
-        // 3. Sinaliza ao loop principal (main) que há uma alteração pendente
+        // Indica que o estado foi alterado (botão apertado)
         LEDInterativo.estado_botao = 1;
     }
 }
